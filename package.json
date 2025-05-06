@@ -1,0 +1,12 @@
+{
+  "name": "wimbledon-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "author": "James Christou",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "scripts": {
+    "start": "bun --env-file=.env src/index.js"
+  }
+}
