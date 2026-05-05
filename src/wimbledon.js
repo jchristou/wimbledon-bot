@@ -1,4 +1,5 @@
 import { sendTelegramError, sendTelegramMessage } from "./telegram";
+import equal from "fast-deep-equal";
 
 /* This token needs refreshing daily. In chrome, open up DevTools and
  * change to the "Network" tab. Navigate to the wimbledon ticket website,
@@ -44,10 +45,15 @@ const getCurrentCatalog = () =>
       return response;
     })
     .catch((error) => {
+      console.error("Error fetching catalog:", error);
       sendTelegramError(
-        `Boss! There's a problem with the bot! ${JSON.stringify(error)}`
-      );
+        `Boss! There's a problem with the bot! ${JSON.stringify(error.message ?? error)}`
+      ).then(() => {
+        process.exit(1);
+      });
     });
+
+const lastCourtResult = {};
 
 export async function parseWimbledonResults() {
   const results = await getCurrentCatalog();
@@ -59,8 +65,7 @@ export async function parseWimbledonResults() {
   const relevantData = sections.map((section) => {
     const court = section.name.en;
     const days = section.clusters[0].items.map(({ product }) => ({
-      availability: product.availability,
-      saleAvailability: product.saleAvailability,
+      availability: product.performances[0].availability,
       dayName: product.jsonLdMetadata.name,
       url: product.performances[0].action.buy
     }));
@@ -71,10 +76,25 @@ export async function parseWimbledonResults() {
   });
 
   relevantData.forEach((data) => {
-    /* This doesn't seem to filter anything. Oh well. It's enough to know when there was a drop, at least. */
-    const filteredDays = data.days.filter(
-      (day) => day.availability !== "NONE" || day.saleAvailability !== "NONE"
-    );
+    // let's not spam everyone to death.
+    const lastResult = lastCourtResult[data.court];
+    if (equal(data.days, lastResult[0].days)) {
+      console.log(`No change for ${data.court}, skipping...`);
+      return;
+    }
+
+    if (lastResult) {
+      clearTimeout(lastResult[1]);
+    }
+
+    lastCourtResult[data.court] = [
+      data,
+      setTimeout(() => delete lastCourtResult[data.court], 5 * 60 * 1000)
+    ];
+
+    const filteredDays = data.days
+      .filter((day) => day.availability !== "NONE" || day.url !== undefined)
+      .toSorted((a, b) => a.dayName.localeCompare(b.dayName));
 
     if (filteredDays.length !== 0) {
       const craftedMessage = filteredDays.reduce((acc, day) => {
